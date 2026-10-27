@@ -1,0 +1,17 @@
+# FNISG 本地联调后端依赖清单 —— 随本 skill 维护（fnisg-web-local-debug）
+# 生成方法：按 FNISG-python 仓库实际第三方 import 扫描（勿凭记忆抄——旧清单里的
+# Flask-SocketIO 实际未被 import）。import 名 ≠ pip 名需映射：
+#   dateutil→python-dateutil、PIL→pillow、Crypto→pycryptodome、sqlalchemy→Flask-SQLAlchemy
+# 2026-10-26 实扫清单（12 包，仅 Flask、paho 锁版本；上游 import 变化时重扫更新本文件）：
+Flask==3.1.0
+Flask-SQLAlchemy
+Flask-Cors
+Flask-APScheduler
+paho-mqtt==1.6.1
+pillow
+pycryptodome
+cacheout
+xlsxwriter
+WTForms
+requests
+python-dateutil
