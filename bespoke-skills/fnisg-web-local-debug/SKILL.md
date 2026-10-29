@@ -12,7 +12,7 @@ description: 本地用 docker 跑 FNISG 前端(Vue2,:8080)+后端(Flask,:8081)�
 > **直连是标准路径**（2026-10-29 实测定稿，取代 2026-09-30 的「必须走隧道」结论——网络环境翻回来了）。直连成立需**两个前置**，缺一包就被设备丢（宿主/容器 TCP 全 timeout）：
 > ① **broker 监听 0.0.0.0**：出厂只听 loopback，需在设备 fnisg_cli 容器里 patch（配方见「设备 1883 访问」节；本机两台已于 2026-10-29 patch，备份 `.bak-20261029`）
 > ② **设备运行模式 = 学习/测试**（设备 web 上切）：正常模式下设备本地安全规则丢 1883（`local_service` 无 1883 → `acl_whitelist -j DROP`）；切学习/测试后 `run_mode_learning` 链出现 ACCEPT 规则即通
-> 任一前置失效（设备重启丢 patch / 模式切回正常 / 网络再拦 1883）→ 退回 **SSH 隧道**方案（配方同样保留在「设备 1883 访问」节）。
+> 任一前置失效（设备重启丢 patch / 模式切回正常）→ 直连断，按「设备 1883 访问」节重做前置即可。
 
 > 这是**通用流程**。下面 `<...>` 是每个使用者不同的值，执行时先向用户确认或自动探测，不要假定。
 
@@ -32,7 +32,7 @@ description: 本地用 docker 跑 FNISG 前端(Vue2,:8080)+后端(Flask,:8081)�
 2. **设备 MQTT IP**（网闸分控制侧/信息侧，各一个 broker）
    - 控制侧 IP → 启动 env `FNISG_MQTT_HOST`（信息侧 `FNISG_MQTT_INFO_HOST`），不改 config.py
    - （两侧可能是同一台设备的两个网口，也可能是两台）
-   - **前提：直连两前置就绪**（broker patch 0.0.0.0 + 设备运行模式学习/测试，见「设备 1883 访问」节）；不满足就起 flask → paho reconnect 循环且不自愈，此时退回隧道方案
+   - **前提：直连两前置就绪**（broker patch 0.0.0.0 + 设备运行模式学习/测试，见「设备 1883 访问」节）；不满足就起 flask → paho reconnect 循环且不自愈
 3. **DevSN**（设备序列号——**可在设备上探测，勿假定勿凭记忆**：方法见下方「DevSN 怎么取」，经 broker 订阅 15s 或登录设备 udevadm，一条命令的事）
 4. **系统类型**：跑 **FNISG(防火墙)** 还是 **FINGAPS(网闸)**——启动 env `FNISG_PRODUCT_TYPE`，见下方"切换系统类型"节。
 
@@ -131,10 +131,10 @@ npm install   # node-sass 等原生模块可能要 python3/make/g++ 兜底；sas
 |---|---|---|
 | `FNISG_TO_TEST=1` | 必设 | 强制走本地联调配置块（Linux 容器必设，否则 flask 走生产块卡死） |
 | `FNISG_DEV_SN=<探测所得>` | 设备上探测，勿假定 | MQTT topic 序列号，漏了接口全 10s 超时(`Resp//` 双斜杠)；探测法见「DevSN 怎么取」 |
-| `FNISG_MQTT_HOST=<控制侧设备IP>` | 第 0 步向用户确认 | 直连控制侧 broker:1883（隧道模式改 172.17.0.1:18835） |
-| `FNISG_MQTT_PORT=1883` | 固定 | 设备 broker 端口（隧道模式改 18835） |
-| `FNISG_MQTT_INFO_HOST=<信息侧设备IP>` | 第 0 步向用户确认 | 直连信息侧 broker:1883（隧道模式改 172.17.0.1:18836） |
-| `FNISG_MQTT_INFO_PORT=1883` | 固定 | 同上（隧道模式改 18836） |
+| `FNISG_MQTT_HOST=<控制侧设备IP>` | 第 0 步向用户确认 | 直连控制侧 broker:1883 |
+| `FNISG_MQTT_PORT=1883` | 固定 | 设备 broker 端口 |
+| `FNISG_MQTT_INFO_HOST=<信息侧设备IP>` | 第 0 步向用户确认 | 直连信息侧 broker:1883 |
+| `FNISG_MQTT_INFO_PORT=1883` | 固定 | 同上 |
 | `FNISG_PRODUCT_TYPE` | FINGAPS | `FNISG`(防火墙) \| `FINGAPS`(网闸) |
 | `SIDE` | ctrl | `ctrl` \| `info`（单侧形态联调时用） |
 
@@ -159,10 +159,7 @@ for ip in ['<控制侧设备IP>','<信息侧设备IP>']:   # 第 0 步向用户�
     except Exception as e: print(ip,'不通:',e)
     finally: s.close()"
 # DevSN 未知时顺手探：见「DevSN 怎么取」②（订阅 15s，topic 第 4 段即 SN）
-# 不通 → 按「设备 1883 访问」节三要素查：broker patch → 运行模式 → 网络层；都不行退回隧道：
-#   ss -tln | grep -q ':18835' || sshpass -p 'huacon@2019' ssh -f -N -o StrictHostKeyChecking=no -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
-#     -L 0.0.0.0:18835:127.0.0.1:1883 root@<控制侧设备IP>   # 控制侧（信息侧同理 18836→<信息侧设备IP>）
-#   走隧道时 flask env 的 HOST/PORT 对应改 172.17.0.1:18835 / 172.17.0.1:18836
+# 不通 → 按「设备 1883 访问」节三要素查：broker patch → 运行模式 → 网络层
 ```
 
 **② flask（必须 `docker exec -d`，不能用 setsid in exec——会 defunct 退出）**：
@@ -265,9 +262,9 @@ FNISG_PRODUCT_TYPE=FINGAPS  # 网闸(FINGAPS,默认)
 - 系统类型和「设备 IP / DevSN」是**两回事**：换设备改 IP+SN，换产品改 system_type，可独立切换。
 
 ## 切换到另一组设备
-新设备先做直连两前置（broker patch 0.0.0.0 + 运行模式学习/测试，见「设备 1883 访问」节；网络拦 1883 时改起隧道）→ 改启动 env（`FNISG_MQTT_HOST/PORT`、`FNISG_MQTT_INFO_HOST/PORT`、`FNISG_DEV_SN`）→ 重启 flask（dev 不用动，零文件改动）。新设备 SN 以探测为准（见「DevSN 怎么取」）；探测值与当前不同时，信息侧才需改 `mqttInfo.py:262/265` 的 `DevSN`（控制侧走 env）。
+新设备先做直连两前置（broker patch 0.0.0.0 + 运行模式学习/测试，见「设备 1883 访问」节）→ 改启动 env（`FNISG_MQTT_HOST/PORT`、`FNISG_MQTT_INFO_HOST/PORT`、`FNISG_DEV_SN`）→ 重启 flask（dev 不用动，零文件改动）。新设备 SN 以探测为准（见「DevSN 怎么取」）；探测值与当前不同时，信息侧才需改 `mqttInfo.py:262/265` 的 `DevSN`（控制侧走 env）。
 
-## 设备 1883 访问：直连三要素与隧道 fallback（2026-10-29 更新）
+## 设备 1883 访问：直连三要素（2026-10-29 更新）
 
 **直连三要素（缺一就是 timeout，按序排查）**：
 1. **broker 监听 0.0.0.0**：脚本 `/fnisg/core/shell/fnisg_external_broker.sh`（设备 fnisg_cli 容器内，`-r-xr-xr-x`，root 可 chmod 后改）。逻辑=模板 `/fnisg/third_party/etc/mosquitto/mosquitto_extern.conf` sed 出运行时 `/run/fnisg/mosquitto_extern.conf`，**改模板 conf 无效**（会被脚本重写）。patch 配方（本机两台 2026-10-29 已做，备份 `.bak-20261029`）：**控制侧**设备脚本改 16 行 `local listen_ip="0.0.0.0"`；**信息侧**设备脚本改 19 行 `listen_ip="0.0.0.0"` + 20 行 `extra_ip=""`（防 0.0.0.0 与 127.0.0.1 双绑定 EADDRINUSE；`$GAP_INFO_IP` 变量行用行号整行替换 `sed -i '19s/.*/.../'` 避开三层转义）→ `s6-svc -r /run/service/fnisg_external_broker` + `s6-svc -r /run/service/fnisg_auth`（auth 桥必须跟着重启）。判据：`grep -nE "^listener" /run/fnisg/mosquitto_extern.conf` 出现 `listener 1883 0.0.0.0`，且 `/proc/net/tcp` 有 `00000000:075B`。**设备重启/重铺镜像丢 patch**，先 `grep -n "listen_ip" <脚本>` 看 0.0.0.0 还在不在。
@@ -275,8 +272,6 @@ FNISG_PRODUCT_TYPE=FINGAPS  # 网闸(FINGAPS,默认)
 3. **网络路径放行 1883**：前两要素都在还不通，才是网络层拦截（2026-09-30 曾只放行 22/443；2026-10-29 复测已放行，宿主/容器直测 22 与 1883 均通——网络环境会翻，判断套路：宿主 python socket 探 `ConnectionRefused`=到了没监听 vs `timeout`=路径丢包）。
 
 **直连模式 env**：flask `FNISG_MQTT_HOST=<两台设备IP>、PORT=1883`，容器直出设备 CONNACK rc=0（2026-10-29 本机实测）。
-
-**隧道 fallback**（网络拦 1883 或不便切运行模式时才用）：宿主 `sshpass -p 'huacon@2019' ssh -f -N -o StrictHostKeyChecking=no -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 0.0.0.0:18835:127.0.0.1:1883 root@<控制侧设备IP>`（信息侧 18836→<信息侧设备IP>；分端口查，缺哪条补哪条——只查"任一在听"会漏掉半开隧道）。flask env 改 `172.17.0.1:18835/18836`（容器经 docker0 网关访问宿主隧道）。隧道是宿主进程，WSL 重启/被杀就断；排错先 `ss -tln | grep 1883`。
 
 > **对业务仓库改动的总声明**：本 skill 对 FNISG-python / FNISG-vue 的一切改动（排错里的本地补丁、本地生成的清单等）都是**联调临时改动**——保持未跟踪、不提交上游；要转正须满足仓库 standards/ 规范并走正式流程。
 
@@ -293,9 +288,9 @@ FNISG_PRODUCT_TYPE=FINGAPS  # 网闸(FINGAPS,默认)
 - **`npm install ... | tail; echo $?` 显示 0 但实际失败**：`$?` 是管道最后一个命令（tail）的退出码。判断装没装成：看输出有无 `npm ERR!` + `node_modules/.bin/webpack-dev-server` 是否存在。
 - **页面打不开/转圈**：curl 两端口看 200；BASE_URL 由页面地址自动推导，不受文件影响——API 全挂先看 `/tmp/dev.log` 里 proxyTable 是否生效（`FNISG_API_TARGET` 指对没），再 Ctrl+Shift+R 强刷清旧 bundle。
 - **oem 等全 500**：`registerApi.py` 的 `ip=` 被还原成 `request.headers["X-Real-IP"]` 硬取 → 改回 `request.headers.get("X-Real-IP") or config.config['mqtt_host']`，重启 flask。
-- **直连 1883 全部 timeout**：按「设备 1883 访问」节三要素按序查：broker patch 0.0.0.0 在不在（`grep listen_ip`）→ 运行模式是否学习/测试（`run_mode_learning` 链空=不在）→ 网络层（refused=没监听 / timeout=丢包）；都不行退回隧道。
-- **flask 起不来/绑不上 :8081**：①漏 `FNISG_TO_TEST=1`（走生产块卡死，flask.log 0 字节）；②**设备 1883 不可达**（patch 丢/模式不在学习测试/隧道断）→ flask.log 刷 `reconnecting·······` 或 `MQTT重新连接失败: [Errno 111] Connection refused`——先修链路（见「设备 1883 访问」节）**再重启 flask**（走「重启 flask 标准操作」）；③还在 import（Threads 已到 4 就快了）→ 再等。老镜像（未修 sleep30）链路不通时是 import 阶段死循环 sleep(30)，特征 flask.log 0 字节 + wchan=nanosleep。
-- **运行中所有下发接口 500 + 日志 `The client is not currently connected`**：设备 1883 链路断了（直连查三要素，隧道模式查 `ss -tln | grep 1883`）。链路恢复后重启 flask 立即恢复（不重启要等 paho 下轮 30s 重试；走「重启 flask 标准操作」）。
+- **直连 1883 全部 timeout**：按「设备 1883 访问」节三要素按序查：broker patch 0.0.0.0 在不在（`grep listen_ip`）→ 运行模式是否学习/测试（`run_mode_learning` 链空=不在）→ 网络层（refused=没监听 / timeout=丢包）。
+- **flask 起不来/绑不上 :8081**：①漏 `FNISG_TO_TEST=1`（走生产块卡死，flask.log 0 字节）；②**设备 1883 不可达**（patch 丢/模式不在学习测试）→ flask.log 刷 `reconnecting·······` 或 `MQTT重新连接失败: [Errno 111] Connection refused`——先修链路（见「设备 1883 访问」节）**再重启 flask**（走「重启 flask 标准操作」）；③还在 import（Threads 已到 4 就快了）→ 再等。老镜像（未修 sleep30）链路不通时是 import 阶段死循环 sleep(30)，特征 flask.log 0 字节 + wchan=nanosleep。
+- **运行中所有下发接口 500 + 日志 `The client is not currently connected`**：设备 1883 链路断了，按三要素查。链路恢复后重启 flask 立即恢复（不重启要等 paho 下轮 30s 重试；走「重启 flask 标准操作」）。
 - **接口全 10s 超时**：flask.log 搜 `Resp//`（双斜杠）→ DevSN 空串，漏 `FNISG_DEV_SN`。
 - **某接口 NoneType/500**：`send_message` 返回 None → 设备没回 Resp（见已知限制）。
 - **登录类接口 500 + 日志反复「MQTT连接断开」**：paho 被装成 2.x（代码按 1.x 写，2.x 的包被设备判 malformed 踢掉）。修：`docker exec <容器> /opt/fnisg-venv/bin/pip install 'paho-mqtt<2'`；判据=设备 `docker logs fnisg_cli | grep malformed`。
