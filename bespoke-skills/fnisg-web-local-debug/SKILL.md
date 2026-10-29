@@ -33,7 +33,7 @@ description: 本地用 docker 跑 FNISG 前端(Vue2,:8080)+后端(Flask,:8081)�
    - 控制侧 IP → 启动 env `FNISG_MQTT_HOST`（信息侧 `FNISG_MQTT_INFO_HOST`），不改 config.py
    - （两侧可能是同一台设备的两个网口，也可能是两台）
    - **前提：直连两前置就绪**（broker patch 0.0.0.0 + 设备运行模式学习/测试，见「设备 1883 访问」节）；不满足就起 flask → paho reconnect 循环且不自愈，此时退回隧道方案
-3. **DevSN**（设备序列号，见下方"DevSN 怎么取"。不知道就先跳到那节教用户取）
+3. **DevSN**（设备序列号——**可在设备上探测，勿假定勿凭记忆**：方法见下方「DevSN 怎么取」，经 broker 订阅 15s 或登录设备 udevadm，一条命令的事）
 4. **系统类型**：跑 **FNISG(防火墙)** 还是 **FINGAPS(网闸)**——启动 env `FNISG_PRODUCT_TYPE`，见下方"切换系统类型"节。
 
 ## 第 1 步：启动容器（挂载代码 + 映射端口）
@@ -130,7 +130,7 @@ npm install   # node-sass 等原生模块可能要 python3/make/g++ 兜底；sas
 | 变量 | 标准值(直连连调) | 用途 |
 |---|---|---|
 | `FNISG_TO_TEST=1` | 必设 | 强制走本地联调配置块（Linux 容器必设，否则 flask 走生产块卡死） |
-| `FNISG_DEV_SN=drive-scsi0` | 本机两台实测同值 | MQTT topic 序列号，漏了接口全 10s 超时(`Resp//` 双斜杠) |
+| `FNISG_DEV_SN=<探测所得>` | 设备上探测，勿假定 | MQTT topic 序列号，漏了接口全 10s 超时(`Resp//` 双斜杠)；探测法见「DevSN 怎么取」 |
 | `FNISG_MQTT_HOST=<控制侧设备IP>` | 第 0 步向用户确认 | 直连控制侧 broker:1883（隧道模式改 172.17.0.1:18835） |
 | `FNISG_MQTT_PORT=1883` | 固定 | 设备 broker 端口（隧道模式改 18835） |
 | `FNISG_MQTT_INFO_HOST=<信息侧设备IP>` | 第 0 步向用户确认 | 直连信息侧 broker:1883（隧道模式改 172.17.0.1:18836） |
@@ -158,6 +158,7 @@ for ip in ['<控制侧设备IP>','<信息侧设备IP>']:   # 第 0 步向用户�
     try: s.connect((ip,1883)); print(ip,'OK')
     except Exception as e: print(ip,'不通:',e)
     finally: s.close()"
+# DevSN 未知时顺手探：见「DevSN 怎么取」②（订阅 15s，topic 第 4 段即 SN）
 # 不通 → 按「设备 1883 访问」节三要素查：broker patch → 运行模式 → 网络层；都不行退回隧道：
 #   ss -tln | grep -q ':18835' || sshpass -p 'huacon@2019' ssh -f -N -o StrictHostKeyChecking=no -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
 #     -L 0.0.0.0:18835:127.0.0.1:1883 root@<控制侧设备IP>   # 控制侧（信息侧同理 18836→<信息侧设备IP>）
@@ -166,7 +167,7 @@ for ip in ['<控制侧设备IP>','<信息侧设备IP>']:   # 第 0 步向用户�
 
 **② flask（必须 `docker exec -d`，不能用 setsid in exec——会 defunct 退出）**：
 ```bash
-docker exec -d <容器名> sh -c 'cd /workspace/FNISG-python && FNISG_TO_TEST=1 FNISG_DEV_SN=drive-scsi0 FNISG_MQTT_HOST=<控制侧设备IP> FNISG_MQTT_PORT=1883 FNISG_MQTT_INFO_HOST=<信息侧设备IP> FNISG_MQTT_INFO_PORT=1883 FNISG_PRODUCT_TYPE=FINGAPS /opt/fnisg-venv/bin/python -m flask --app app run --host 0.0.0.0 --port 8081 > /tmp/flask.log 2>&1'
+docker exec -d <容器名> sh -c 'cd /workspace/FNISG-python && FNISG_TO_TEST=1 FNISG_DEV_SN=<探测所得DevSN> FNISG_MQTT_HOST=<控制侧设备IP> FNISG_MQTT_PORT=1883 FNISG_MQTT_INFO_HOST=<信息侧设备IP> FNISG_MQTT_INFO_PORT=1883 FNISG_PRODUCT_TYPE=FINGAPS /opt/fnisg-venv/bin/python -m flask --app app run --host 0.0.0.0 --port 8081 > /tmp/flask.log 2>&1'
 ```
 
 **③ dev**：
@@ -226,7 +227,7 @@ bash <本skill目录>/scripts/check_peer_sn.sh [对侧IP] [SSH密码] [容器名
 ---
 
 ## DevSN 怎么取（连新设备必读）
-DevSN = 设备系统盘 `/dev/sda` 的序列号（`ID_SERIAL_SHORT`），原代码用 udevadm 取。
+DevSN = 设备系统盘 `/dev/sda` 的序列号（`ID_SERIAL_SHORT`），原代码用 udevadm 取。**值以当次探测为准，勿假定**（本机两台实测恰为 `drive-scsi0`，换设备必变）。
 
 **① 登录设备执行**（最准）：
 ```bash
@@ -264,7 +265,7 @@ FNISG_PRODUCT_TYPE=FINGAPS  # 网闸(FINGAPS,默认)
 - 系统类型和「设备 IP / DevSN」是**两回事**：换设备改 IP+SN，换产品改 system_type，可独立切换。
 
 ## 切换到另一组设备
-新设备先做直连两前置（broker patch 0.0.0.0 + 运行模式学习/测试，见「设备 1883 访问」节；网络拦 1883 时改起隧道）→ 改启动 env（`FNISG_MQTT_HOST/PORT`、`FNISG_MQTT_INFO_HOST/PORT`、`FNISG_DEV_SN`）→ 重启 flask（dev 不用动，零文件改动）。新设备 SN 若不是 drive-scsi0，信息侧才需改 `mqttInfo.py:262/265` 的 `DevSN`（控制侧走 env）。
+新设备先做直连两前置（broker patch 0.0.0.0 + 运行模式学习/测试，见「设备 1883 访问」节；网络拦 1883 时改起隧道）→ 改启动 env（`FNISG_MQTT_HOST/PORT`、`FNISG_MQTT_INFO_HOST/PORT`、`FNISG_DEV_SN`）→ 重启 flask（dev 不用动，零文件改动）。新设备 SN 以探测为准（见「DevSN 怎么取」）；探测值与当前不同时，信息侧才需改 `mqttInfo.py:262/265` 的 `DevSN`（控制侧走 env）。
 
 ## 设备 1883 访问：直连三要素与隧道 fallback（2026-10-29 更新）
 
