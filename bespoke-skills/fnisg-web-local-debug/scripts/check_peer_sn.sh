@@ -4,7 +4,7 @@
 #
 # 背景: 信息侧请求组 MQTT topic 需要对侧设备 DevSN(FNISG-python common/mqtt.py
 # fetch_peer_sn), 真机机制 = rclone over SSH 读对侧 /run/udev/data/b8:0。
-# 本地容器无 rclone、且容器网络到设备 22 端口不通(与 MQTT 同一网络现实)
+# 本地容器无 rclone(2026-09-30 时容器到设备 22 也不通; 2026-10-29 复测 22 已通, 垫片保留少依赖)
 # → 信息侧接口一律报「对侧DevSN未获取，信息侧请求未发送」。
 #
 # 本脚本流程:
