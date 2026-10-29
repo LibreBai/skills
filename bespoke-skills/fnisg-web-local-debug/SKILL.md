@@ -17,6 +17,8 @@ description: 本地用 docker 跑 FNISG 前端(Vue2,:8080)+后端(Flask,:8081)�
 
 ## 第 0 步：向用户收集 4 样东西（缺一不可）
 
+🔴 **CHECKPOINT·STOP**：4 样没确认齐不要进第 1 步——代码路径/设备 IP/DevSN/系统类型错一个，容器和隧道全要返工。能自动探测的（如 `ls ~/Gitee/FNISG-*`）探完即算确认；探测不出的必须问用户。
+
 用 AskUserQuestion 或直接问：
 
 1. **两个项目的代码路径**（宿主绝对路径）
@@ -168,10 +170,12 @@ docker exec -d <容器名> sh -c 'cd /workspace/FNISG-vue && /usr/local/node/bin
 - **env 缺一不可**：漏 `FNISG_TO_TEST=1` → flask 走设备分支卡死；漏 `FNISG_DEV_SN` → MQTT topic SN 空串（`Resp//` 双斜杠），接口全 10s 超时。示例串里 `FNISG_PRODUCT_TYPE=FINGAPS` 按第 0 步确认的类型写（防火墙场景写 `FNISG`）
 - **MQTT 健康判据 = flask.log 出现 2 行「已连接mqtt」**（双 broker 各一）。**oem 接口 200 不代表 MQTT 通**——oem 是本地接口不碰设备
 - flask 绑定速度：新版分支已去掉 connect() 成功后 sleep(30) 白等（055b71c），实测 ~5-30s；老分支 60-75s。以 `curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8081/member/getOemInfo` 返回 200 为准，别按固定秒数死等
-- **杀 flask 的坑**：最小镜像**没有 pkill**（procps 未装，见排错），且 `pkill -f` 模式串会匹配到包装 sh 自己（命令行含 flask 字样）→ 自杀、后续命令全不执行。用排错里的 /proc 遍历杀法，放**单独的 exec** 跑，杀完另开 exec 验证
+- **杀 flask 的坑**：最小镜像**没有 pkill**，且 `pkill -f` 模式串会匹配到包装 sh 自己 → 自杀。一律走下方「重启 flask 标准操作」① 的 /proc 遍历杀法（模式串带 `[n]` 字符类防自匹配），杀与验证分两个 exec
 - 日志 `/tmp/flask.log`、`/tmp/dev.log`；dev 首次编译 30-90s，有缓存 5s
 
 ### 重启 flask 标准操作（切系统类型/补隧道/更新垫片后都走这两步）
+
+🔴 **CHECKPOINT**：重启会踢掉所有已登录的浏览器会话（要重新登录），切系统类型还会整站换形态。动手前确认当下没人正在这套环境里操作；替别人维护时先打声招呼。
 
 ```bash
 # ① 杀（单独 exec；模式串用 pytho[n] 字符类打断，防 wrapper 自匹配——最小镜像无 pkill）
@@ -186,7 +190,7 @@ docker exec <容器名> sh -c 'curl -s -o /dev/null --max-time 2 http://localhos
 ```bash
 curl -sf -o /dev/null http://localhost:8080/                            # 前端 → 200
 curl -s -X POST http://localhost:8080/api_1/member/getSystemType        # 经代理 → {"status":0,...,"type":"fingaps","gap_type":"BOTH_SIDE","side":"ctrl"}
-docker exec <容器名> grep -c "已连接mqtt" /tmp/flask.log                # → 2 才算 MQTT 就绪
+docker exec <容器名> grep -ac "已连接mqtt" /tmp/flask.log               # → 2 才算 MQTT 就绪（-a：日志混设备推送二进制字节，不加会被当 binary 截断）
 ```
 都正常 → 浏览器开 **`http://localhost:8080`**（改代码不生效就 Ctrl+Shift+R 强刷）。web 登录 **admin / hc@20190**（235/236 设备侧 web 同）。
 
@@ -260,7 +264,7 @@ FNISG_PRODUCT_TYPE=FINGAPS  # 网闸(FINGAPS,默认)
 **新版 broker 脚本形态**（2026-09-24 镜像起；容器 `fnisg_cli` 内）：`/fnisg/core/shell/fnisg_external_broker.sh`（`-r-xr-xr-x`，root 可 chmod 后改；旧 `.bak-20260912` 备份可能不存在=换过新脚本）。逻辑=模板 `/fnisg/third_party/etc/mosquitto/mosquitto_extern.conf` sed 出运行时 `/run/fnisg/mosquitto_extern.conf`：控制侧 `listen_ip=127.0.0.1`；信息侧(`SIDE=Info`) `listen_ip=$GAP_INFO_IP` + `extra_ip=127.0.0.1` 双 listener。**改模板 conf 无效**（会被脚本重写）。
 若未来网络放行 1883 要开直连：patch 脚本 `listen_ip`→`0.0.0.0`（信息侧另把 `extra_ip`→`""` 防双监听 EADDRINUSE；`$GAP_INFO_IP` 变量行用行号整行替换 `sed -i '19s/.*/.../'` 避开三层转义）→ `s6-svc -r /run/service/fnisg_external_broker` + `s6-svc -r /run/service/fnisg_auth`（auth 桥必须跟着重启）→ 设备 iptables 放行 → 本地 flask env 改直连值重启。**设备重启/重铺镜像都会丢 patch**，排错先 `grep listen_ip <脚本>` 看 0.0.0.0 还在不在。
 
-**隧道（标准路径）**：宿主 `ssh -fNT -i ~/.ssh/fnisg_dev -L 0.0.0.0:18835:127.0.0.1:1883 root@172.20.0.235`（信息侧 18836→236）。容器经 docker0 网关 `172.17.0.1` 访问。隧道是宿主进程，WSL 重启/被杀就断；无密钥时用 `sshpass -p 'huacon@2019'`（SSH root 密码；web 登录 admin/hc@20190）。排错先 `ss -tln | grep 1883`。
+**隧道（标准路径）**：起隧道命令与无密钥参数见第 6 步①（分端口查，缺哪条补哪条）。容器经 docker0 网关 `172.17.0.1` 访问。隧道是宿主进程，WSL 重启/被杀就断；排错先 `ss -tln | grep 1883`。
 
 > **对业务仓库改动的总声明**：本 skill 对 FNISG-python / FNISG-vue 的一切改动（排错里的本地补丁、本地生成的清单等）都是**联调临时改动**——保持未跟踪、不提交上游；要转正须满足仓库 standards/ 规范并走正式流程。
 
@@ -268,10 +272,12 @@ FNISG_PRODUCT_TYPE=FINGAPS  # 网闸(FINGAPS,默认)
 **需要设备执行命令的接口会失败**：`getLanguageInfo`/`login` 等发 `HC/PFE/Req/<SN>/...` 到设备，若设备命令处理 daemon 不响应 → flask `send_message` 超时后返回规整错误 `{'status': -1, 'msg': '命令执行超时，请稍后重试'}`（不再抛 NoneType 500）。这是**设备侧**（broker/推送在线但命令处理不工作），不是这套环境的问题。oem/getSystemType/getPublicKey 等本地接口正常。
 
 ## 排错
-- **信息侧接口全报 `对侧DevSN未获取，信息侧请求未发送`**：容器缺对侧 SN 通道，跑 `scripts/check_peer_sn.sh`（见「对侧 DevSN 通道」节）装垫片 + 重启 flask。
+> flask.log 混有设备推送的二进制字节：`grep` 一律加 `-a`，否则报 binary file matches 并截断输出（本节所有「搜 flask.log」判据同理）。
+
+- **信息侧接口全报 `对侧DevSN未获取，信息侧请求未发送`**：先甄别是不是现症——该报错只在 `fetch_peer_sn` 探测当次失败时产生且必留痕（成功 `PeerSN: <SN>`/失败 `获取对侧DevSN失败`），`grep -a` 当下日志看有无新记录；容器重建/垫片重装前的旧报错不算，垫片在位即自愈。确属现症再跑 `scripts/check_peer_sn.sh`（见「对侧 DevSN 通道」节）装垫片 + 重启 flask。
 - **dev 编译失败 `Missing binding .../node-sass/vendor/linux-x64-83/binding.node`**：npm install 抓错平台的 node-sass 预编译二进制（vendor 里是 darwin-x64-* 等）。修：按 `node_modules/node-sass/package.json` 的版本手动补正确 binding：`curl -sfL https://npmmirror.com/mirrors/node-sass/v<版本>/linux-x64-83_binding.node -o node_modules/node-sass/vendor/linux-x64-83/binding.node`，再用 `node -e "require('.../node-sass').renderSync({data:'a{b:c}'})"` 自测后重启 dev。chromedriver 装失败同理无害（仅 e2e 用）。
 - **容器内脚本跑一半 `Bad substitution`/假结果**：容器 `sh` 是 **dash**，禁一切 bash-ism——`${var:0:n}`、`[[ ]]`、数组、`/dev/tcp`（见下方 `/dev/tcp` 条）全不可用。复杂文本处理宁可 `awk`/`tr`，或宿主 bash 处理完再 `docker exec` 传入。
-- **容器里 `pkill: command not found`**：最小镜像没装 procps（pkill/ps 全无）。杀进程用 /proc 遍历：`for p in /proc/[0-9]*/cmdline; do c=$(tr "\0" " " <"$p"); case "$c" in *关键字*) kill $(basename $(dirname "$p"));; esac; done`。注意 case 模式串本身在 wrapper 命令行里会**自匹配**（shell 被自己杀掉、后续命令不执行，exit 143）——杀进程放单独的 exec，杀完另开 exec 验证。
+- **容器里 `pkill: command not found`**：最小镜像没装 procps（pkill/ps 全无）。杀进程一律用「重启 flask 标准操作」① 的 /proc 遍历杀法（把 `pytho[n]` 关键字换成目标关键字即可）；case 模式串务必带 `[n]` 式字符类打断自匹配（wrapper 命令行含关键字会把自己杀掉、后续命令不执行，exit 143），杀与验证分两个 exec。
 - **`npm install ... | tail; echo $?` 显示 0 但实际失败**：`$?` 是管道最后一个命令（tail）的退出码。判断装没装成：看输出有无 `npm ERR!` + `node_modules/.bin/webpack-dev-server` 是否存在。
 - **页面打不开/转圈**：curl 两端口看 200；BASE_URL 由页面地址自动推导，不受文件影响——API 全挂先看 `/tmp/dev.log` 里 proxyTable 是否生效（`FNISG_API_TARGET` 指对没），再 Ctrl+Shift+R 强刷清旧 bundle。
 - **oem 等全 500**：`registerApi.py` 的 `ip=` 被还原成 `request.headers["X-Real-IP"]` 硬取 → 改回 `request.headers.get("X-Real-IP") or config.config['mqtt_host']`，重启 flask。
@@ -288,6 +294,16 @@ FNISG_PRODUCT_TYPE=FINGAPS  # 网闸(FINGAPS,默认)
 - **复杂脚本进容器**：`docker exec -i <容器> sh -s <<'EOF' ... EOF`（**别忘 `-i`**，否则 stdin 不传、静默无输出）。
 - **pip 装 pillow 失败**：py3.14 没预编译 wheel → 换 py3.11。
 - 进容器：`docker exec -it <容器名> bash`
+
+## 不要做（反例速查）
+- 别用容器内 `/dev/tcp` 测端口（dash 不支持，假阴性）→ venv python socket 或宿主 bash
+- 别在容器里 `pkill -f`（无 procps + wrapper 自匹配自杀）→ 走「重启 flask 标准操作」①
+- 别把首选路径（debian）的 apt sed 照抄到 ubuntu（sources 格式不同；ubuntu 先 http 源装 ca-certificates）
+- 别改设备上 mosquitto 模板 conf（会被 broker 脚本重写）→ patch 运行时脚本
+- 别按固定秒数死等 flask 起来 → 以 `curl 200` / `已连接mqtt`=2 为准
+- 别凭记忆抄后端依赖清单 → 按 import 重扫（历史清单混进过未被 import 的包）
+- 业务仓库里的联调临时改动别提交上游（保持未跟踪，转正走正式流程）
+- 别直连设备 `IP:1883`（现网络只放行 22/443；直连写法仅在网络放行 1883 时用）
 
 ## 镜像源速查（国内）
 - docker 镜像：`docker pull docker.1ms.run/library/<img>`（hub 被墙）
