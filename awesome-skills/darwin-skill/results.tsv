@@ -1,0 +1,6 @@
+timestamp	commit	skill	old_score	new_score	status	dimension	note	eval_mode
+2026-10-29T14:39	baseline	fnisg-web-local-debug	-	85.6	baseline	-	3条prompt双臂实测(skill侧3/3真实执行); 结构短板dim4/dim7/dim9; 实测发现grep -a缺口+旧报错甄别缺口	full_test
+2026-10-29T14:44	4231cc0	fnisg-web-local-debug	85.6	3-0 better	keep	检查点设计	R1+2处🔴CHECKPOINT(第0步硬门/重启flask前确认踢会话),3票全clear,均认定dim4唯一实质差异且无其他维度损失	paired
+2026-10-29T14:47	2625a34	fnisg-web-local-debug	85.6	2-0 better(+1票未回)	keep	整体架构	R2去重:隧道命令与/proc杀法归一单一出处;judges认定v0次要副本已实际漂移(丢防半开参数/丢[n]防自匹配),照抄即复现文档自警故障	paired
+2026-10-29T14:50	f1b6dae	fnisg-web-local-debug	85.6	3-0 better	keep	可执行具体性+反例黑名单	R3回填实测发现:flask.log混二进制须grep -a(判据否则截断退化)/对侧SN报错先甄别现症防无谓重启/新增8条反例速查;judges认可误判防护增益>小冗余	paired
+2026-10-29T15:52	cff2f62	fnisg-web-local-debug	-	-	keep	直连改造(用户指示)	SKILL全篇隧道→直连; 设备broker已patch+模式已切, flask直连运行中(已连接mqtt×2); 隧道降fallback	full_test

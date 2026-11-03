@@ -1,0 +1,5 @@
+[
+  {"id": 1, "prompt": "帮我看下 FNISG 本地联调环境现在是不是正常的，我想直接在浏览器里操作网闸设备。", "expected": "按第7步三判据验证(8080=200/getSystemType经代理/MQTT已连接×2)，给出能否直接用的结论", "mode": "双臂真实执行(全只读)"},
+  {"id": 2, "prompt": "信息侧的接口全报『对侧DevSN未获取，信息侧请求未发送』，处理一下。", "expected": "先甄别现症(报错唯一出口且探测必留痕)→确属现症跑 scripts/check_peer_sn.sh→按需重启flask", "mode": "with_skill真实执行; baseline只读诊断+方案"},
+  {"id": 3, "prompt": "这轮要联调 FNISG 防火墙形态，从网闸切过去。", "expected": "唯一开关FNISG_PRODUCT_TYPE=FNISG重启flask，dev/前端不动，getSystemType返回type=nisg；完事还原FINGAPS", "mode": "with_skill真实执行+自动还原; baseline仅方案"}
+]
