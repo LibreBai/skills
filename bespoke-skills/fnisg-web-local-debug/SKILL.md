@@ -171,6 +171,7 @@ docker exec -d <容器名> sh -c 'cd /workspace/FNISG-python && FNISG_TO_TEST=1 
 ```bash
 docker exec -d <容器名> sh -c 'cd /workspace/FNISG-vue && /usr/local/node/bin/npm run dev > /tmp/dev.log 2>&1'
 ```
+> ⚠️ 若 dev.log 秒挂报 `/usr/bin/env: 'node': No such file or directory`（2026-10-30 重建实测）：webpack-dev-server 的 shebang 走 PATH 找 node，而镜像没把 node 软链进 PATH。修一次固化进容器层：`docker exec <容器名> sh -c 'ln -sf /usr/local/node/bin/node /usr/local/bin/node; ln -sf /usr/local/node/bin/npm /usr/local/bin/npm'`，重启 dev 即可；或启动命令前置 `export PATH=/usr/local/node/bin:$PATH`。
 
 **④ 信息侧功能首次使用前，跑对侧 SN 通道探测**（一键脚本，见下方「对侧 DevSN 通道」节）——漏了信息侧接口一律报「对侧DevSN未获取，信息侧请求未发送」。
 
