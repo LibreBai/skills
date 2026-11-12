@@ -26,7 +26,7 @@
 
 - NAME-01 公共字段与业务概念命名必须先查术语表（naming-glossary.md）并使用其中标准名；未收录的概念先登记标准名再使用，禁止临场造同义词。
 - NAME-02 同一业务概念全工程唯一名称：如统一 `policy_id`，禁止 `rule_id`、`policy_no` 等同义名称。
-- NAME-03 数据生产方与消费方字段名完全一致：C++ 输出 `device_status`，Vue 必须以 `device_status` 读取，禁止改为 `deviceStatus`；禁止未经约定自行重命名、转换或映射公共字段。
+- NAME-03 数据生产方与消费方字段名完全一致：生产方（如后端服务）输出 `device_status`，消费方（如前端页面）必须以 `device_status` 读取，禁止改为 `deviceStatus`；禁止未经约定自行重命名、转换或映射公共字段，不绑定具体技术栈。
 - NAME-04 同一字段在所有模块中的数据类型、业务含义、单位、取值范围、默认值必须一致。
 - NAME-05 新增名称前必须先检索工程内已有名称和接口定义，优先复用。
 - NAME-06 语义后缀：标识字段明确标识对象；计数字段用 `_count`；布尔字段用 `is_`/`has_` 表达真假（如 `is_enabled`、`has_permission`）；带单位的数值必须写明单位（如 `timeout_ms`、`throughput_mbps`）。
@@ -36,7 +36,7 @@
 
 ## 示例
 
-❌ Vue 读 C++ 字段时写成 `deviceStatus`
+❌ 消费方读生产方字段时写成 `deviceStatus`（如前端把后端的 `device_status` 改写为驼峰）
 ❌ 同一概念 A 模块叫 `policy_id`，B 模块叫 `rule_id`
 ❌ `timeout`（无单位）、`flag`（布尔无语义）
 ✅ `timeout_ms`、`is_enabled`、`conn_count`
